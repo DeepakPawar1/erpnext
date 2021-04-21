@@ -124,12 +124,9 @@ class SalarySlip(TransactionBase):
 
 	def check_existing(self):
 		if not self.salary_slip_based_on_timesheet:
-			cond = ""
-			if self.payroll_entry:
-				cond += "and payroll_entry = '{0}'".format(self.payroll_entry)
 			ret_exist = frappe.db.sql("""select name from `tabSalary Slip`
 						where start_date = %s and end_date = %s and docstatus != 2
-						and employee = %s and name != %s {0}""".format(cond),
+						and employee = %s and name != %s""",
 						(self.start_date, self.end_date, self.employee, self.name))
 			if ret_exist:
 				self.employee = ''
@@ -598,10 +595,10 @@ class SalarySlip(TransactionBase):
 				continue
 
 			if (
-				(not d.additional_salary
-				and (not additional_salary or additional_salary.overwrite))
-				or (additional_salary
-				and additional_salary.name == d.additional_salary)
+				not d.additional_salary
+				and (not additional_salary or additional_salary.overwrite)
+				or additional_salary
+				and additional_salary.name == d.additional_salary
 			):
 				component_row = d
 				break
@@ -611,7 +608,7 @@ class SalarySlip(TransactionBase):
 			self.set(component_type, [
 				d for d in self.get(component_type)
 				if d.salary_component != component_data.salary_component
-				or (d.additional_salary and additional_salary.name != d.additional_salary)
+				or d.additional_salary and additional_salary.name != d.additional_salary
 				or d == component_row
 			])
 
@@ -992,6 +989,15 @@ class SalarySlip(TransactionBase):
 		return total
 
 	def set_component_amounts_based_on_payment_days(self):
+		#NT added code -- begin
+		st_date_month=self.start_date
+		cur_date=datetime.datetime.now()
+		d=self.start_date
+		if type(self.start_date) == type("abc") :
+			st_date_month = datetime.datetime.strptime(self.start_date, "%m")
+		elif isinstance(self.start_date,datetime.date) or isinstance(self.start_date,datetime.datetime):
+			st_date_month= self.start_date.month
+		#NT added code -- end
 		joining_date, relieving_date = frappe.get_cached_value("Employee", self.employee,
 			["date_of_joining", "relieving_date"])
 
@@ -1004,6 +1010,19 @@ class SalarySlip(TransactionBase):
 		for component_type in ("earnings", "deductions"):
 			for d in self.get(component_type):
 				d.amount = flt(self.get_amount_based_on_payment_days(d, joining_date, relieving_date)[0], d.precision("amount"))
+				#NT added code -- begin
+				is_professional_tax_component=frappe.db.get_value("Salary Component", d.salary_component,["is_professional_tax_component"])
+				if is_professional_tax_component == 1:
+					if self.gross_pay > 0 and self.gross_pay <7501:
+						d.amount = flt(0, d.precision("amount"))
+					elif self.gross_pay > 7500 and self.gross_pay <10001:
+						d.amount = flt(175, d.precision("amount"))
+					elif self.gross_pay > 10000 and self.gross_pay <999999 and st_date_month !=2:
+						d.amount = flt(200, d.precision("amount"))
+					elif self.gross_pay > 10000 and self.gross_pay <999999 and st_date_month ==2:
+						d.amount = flt(300, d.precision("amount"))
+						
+				#NT added code -- end
 
 	def set_loan_repayment(self):
 		self.total_loan_repayment = 0
